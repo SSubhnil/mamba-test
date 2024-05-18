@@ -32,7 +32,7 @@ defaults:
   reward_EMA: True
   num_meta_episodes: 1
   max_episode_length: 100
-  meta_learning: True
+  meta_learning: False
 
   # Model
   rnn_detach_every: -1
@@ -143,14 +143,15 @@ dmc_vision:
   decoder: { mlp_keys: '$^', cnn_keys: 'image' }
 
 dmc_proprio:
-  steps: 2e7
+  steps: 1e6
   reach_wm_horizon_limit: 5e6
   train_ratio: 0.03
   max_episode_length: 300
   logdir: ./dmc_proprio
-  detach_image_from_obs: true
+  detach_image_from_obs: True
   encoder: { mlp_keys: '.*', cnn_keys: '$^' }
   decoder: { mlp_keys: '.*', cnn_keys: '$^' }
+  small_state_space: False
 
 dmc_proprio_goal:
   steps: 2e7

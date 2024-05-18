@@ -8,13 +8,13 @@ import pickle
 import sys
 import time
 
-import gym
+import gymnasium as gym
 
 os.environ["MUJOCO_GL"] = "glfw"
 
 import numpy as np
-import ruamel.yaml as yaml
-
+# import ruamel.yaml as yaml
+from ruamel.yaml import YAML
 sys.path.append(str(pathlib.Path(__file__).parent))
 
 import exploration as expl
@@ -393,7 +393,8 @@ def main(config):
     else:
         train_envs = [Damy(env) for env in train_envs]
         eval_envs = [Damy(env) for env in eval_envs]
-    acts = helper_env.action_space
+    acts = helper_env.action_space()
+    # print(acts)
     config.num_actions = acts.n if hasattr(acts, "n") else acts.shape[0]
 
     if not config.offline_traindir:
@@ -528,7 +529,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--configs", nargs="+")
     args, remaining = parser.parse_known_args()
-    configs = yaml.safe_load(
+    yaml = YAML(typ='safe', pure=True)
+    configs = yaml.load(
         (pathlib.Path(sys.argv[0]).parent / "configs.yaml").read_text()
     )
 

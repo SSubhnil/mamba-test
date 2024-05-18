@@ -1,4 +1,4 @@
-import gym
+import gymnasium as gym
 import numpy as np
 from envs.dmc_meta import suite
 
@@ -69,7 +69,7 @@ class DeepMindControl:
         info = {"discount": np.array(time_step.discount, np.float32)}
         return obs, reward, done, info
 
-    def reset(self):
+    def reset(self, *args, **kwargs):
         time_step = self._env.reset()
         obs = dict(time_step.observation)
         obs = {key: [val] if len(val.shape) == 0 else val for key, val in obs.items() if key not in self._state_keys_to_ignore}
