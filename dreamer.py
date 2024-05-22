@@ -1,3 +1,5 @@
+from xvfbwrapper import Xvfb
+
 import argparse
 import datetime
 import functools
@@ -332,197 +334,205 @@ def make_env(config, mode):
 
 
 def main(config):
-    curr_log_file = pathlib.Path(
-        datetime.datetime.now().strftime("%d-%m-%Y-%H-%M-%S") + "_" + hashlib.sha256(str(config).encode()).hexdigest())
-    logdir = pathlib.Path(config.logdir).expanduser()
-    logdir = logdir / curr_log_file
-    print("Logging to ", logdir)
-    if config.all_layers != 0:
-        config.reward_layers = config.all_layers
-        config.cont_layers = config.all_layers
-        config.value_layers = config.all_layers
-        config.actor_layers = config.all_layers
 
-    config.decoder["input_reward"] = config.meta_learning
-    config.encoder["input_reward"] = config.meta_learning
+    vdisplay = Xvfb(width=1400, height=900)
+    vdisplay.start()
 
-    if config.mamba_context:
-        config.batch_length = config.num_meta_episodes * config.max_episode_length
+    try:
+        curr_log_file = pathlib.Path(
+            datetime.datetime.now().strftime("%d-%m-%Y-%H-%M-%S") + "_" + hashlib.sha256(str(config).encode()).hexdigest())
+        logdir = pathlib.Path(config.logdir).expanduser()
+        logdir = logdir / curr_log_file
+        print("Logging to ", logdir)
+        if config.all_layers != 0:
+            config.reward_layers = config.all_layers
+            config.cont_layers = config.all_layers
+            config.value_layers = config.all_layers
+            config.actor_layers = config.all_layers
 
-    config.sample_first = config.mamba_context
+        config.decoder["input_reward"] = config.meta_learning
+        config.encoder["input_reward"] = config.meta_learning
 
-    if not config.meta_learning and config.num_meta_episodes > 1:
-        raise ValueError("Cannot use more than one meta episode without meta learning")
+        if config.mamba_context:
+            config.batch_length = config.num_meta_episodes * config.max_episode_length
 
-    config.traindir = config.traindir or logdir / "train_eps"
-    config.evaldir = config.evaldir or logdir / "eval_eps"
-    config.steps //= config.action_repeat
-    config.log_every //= config.action_repeat
-    config.time_limit //= config.action_repeat
+        config.sample_first = config.mamba_context
 
-    print("Logdir", logdir)
-    logdir.mkdir(parents=True, exist_ok=True)
-    with open(os.path.join(logdir, 'config.txt'), 'wb') as f:
-        pickle.dump(config, f)
-    config.traindir.mkdir(parents=True, exist_ok=True)
-    config.evaldir.mkdir(parents=True, exist_ok=True)
-    step = count_steps(config.traindir)
-    # step in logger is environmental step
-    logger = tools.Logger(config.action_repeat * step, config)
+        if not config.meta_learning and config.num_meta_episodes > 1:
+            raise ValueError("Cannot use more than one meta episode without meta learning")
 
-    print("Create envs.")
-    if config.offline_traindir:
-        directory = config.offline_traindir.format(**vars(config))
-    else:
-        directory = config.traindir
-    train_eps = tools.load_episodes(directory, limit=config.dataset_size)
-    if config.offline_evaldir:
-        directory = config.offline_evaldir.format(**vars(config))
-    else:
-        directory = config.evaldir
-    eval_eps = tools.load_episodes(directory, limit=1)
-    make = lambda mode: make_env(config, mode)
-    helper_env = make("eval")
-    train_envs = [make("train") for _ in range(config.envs)]
-    eval_envs = [make("eval") for _ in range(config.envs)]
-    state2img = helper_env.state2image if hasattr(helper_env, "state2image") else None
-    sample_task = lambda: helper_env.sample_task() if config.meta_learning else None
-    if config.envs > 1:
-        train_envs = [Parallel(env, "process") for env in train_envs]
-        eval_envs = [Parallel(env, "process") for env in eval_envs]
-    else:
-        train_envs = [Damy(env) for env in train_envs]
-        eval_envs = [Damy(env) for env in eval_envs]
-    acts = helper_env.action_space()
-    # print(acts)
-    config.num_actions = acts.n if hasattr(acts, "n") else acts.shape[0]
+        config.traindir = config.traindir or logdir / "train_eps"
+        config.evaldir = config.evaldir or logdir / "eval_eps"
+        config.steps //= config.action_repeat
+        config.log_every //= config.action_repeat
+        config.time_limit //= config.action_repeat
 
-    if not config.offline_traindir:
-        prefill = max(0, config.prefill - count_steps(config.traindir))
-        print(f"Prefill dataset ({prefill} episodes).")
-        if hasattr(acts, "discrete"):
-            random_actor = tools.OneHotDist(
-                torch.zeros(config.num_actions).repeat(config.envs, 1)
-            )
+        print("Logdir", logdir)
+        logdir.mkdir(parents=True, exist_ok=True)
+        with open(os.path.join(logdir, 'config.txt'), 'wb') as f:
+            pickle.dump(config, f)
+        config.traindir.mkdir(parents=True, exist_ok=True)
+        config.evaldir.mkdir(parents=True, exist_ok=True)
+        step = count_steps(config.traindir)
+        # step in logger is environmental step
+        logger = tools.Logger(config.action_repeat * step, config)
+
+        print("Create envs.")
+        if config.offline_traindir:
+            directory = config.offline_traindir.format(**vars(config))
         else:
-            random_actor = torchd.independent.Independent(
-                torchd.uniform.Uniform(
-                    torch.Tensor(acts.low).repeat(config.envs, 1),
-                    torch.Tensor(acts.high).repeat(config.envs, 1),
-                ),
-                1,
-            )
+            directory = config.traindir
+        train_eps = tools.load_episodes(directory, limit=config.dataset_size)
+        if config.offline_evaldir:
+            directory = config.offline_evaldir.format(**vars(config))
+        else:
+            directory = config.evaldir
+        eval_eps = tools.load_episodes(directory, limit=1)
+        make = lambda mode: make_env(config, mode)
+        helper_env = make("eval")
+        train_envs = [make("train") for _ in range(config.envs)]
+        eval_envs = [make("eval") for _ in range(config.envs)]
+        state2img = helper_env.state2image if hasattr(helper_env, "state2image") else None
+        sample_task = lambda: helper_env.sample_task() if config.meta_learning else None
+        if config.envs > 1:
+            train_envs = [Parallel(env, "process") for env in train_envs]
+            eval_envs = [Parallel(env, "process") for env in eval_envs]
+        else:
+            train_envs = [Damy(env) for env in train_envs]
+            eval_envs = [Damy(env) for env in eval_envs]
+        acts = helper_env.action_space()
+        # print(acts)
+        config.num_actions = acts.n if hasattr(acts, "n") else acts.shape[0]
 
-        def random_agent(o, d, s):
-            action = random_actor.sample()
-            logprob = random_actor.log_prob(action)
-            return {"action": action, "logprob": logprob}, None
+        if not config.offline_traindir:
+            prefill = max(0, config.prefill - count_steps(config.traindir))
+            print(f"Prefill dataset ({prefill} episodes).")
+            if hasattr(acts, "discrete"):
+                random_actor = tools.OneHotDist(
+                    torch.zeros(config.num_actions).repeat(config.envs, 1)
+                )
+            else:
+                random_actor = torchd.independent.Independent(
+                    torchd.uniform.Uniform(
+                        torch.Tensor(acts.low).repeat(config.envs, 1),
+                        torch.Tensor(acts.high).repeat(config.envs, 1),
+                    ),
+                    1,
+                )
 
-        prefill_tasks = [sample_task() for _ in range(config.prefill)]
-        _, steps_taken, _ = tools.simulate(
-            random_agent,
-            train_envs,
-            prefill_tasks,
-            train_eps,
-            config.traindir,
-            logger,
-            is_eval=True,
-            limit=config.dataset_size,
-            state2image=state2img,
-            num_meta_episodes=config.num_meta_episodes,
-        )
-        logger.step += steps_taken * config.action_repeat
-        print(f"Logger: ({logger.step} steps).")
+            def random_agent(o, d, s):
+                action = random_actor.sample()
+                logprob = random_actor.log_prob(action)
+                return {"action": action, "logprob": logprob}, None
 
-    print("Simulate agent.")
-    train_dataset = make_dataset(train_eps, config)
-    eval_dataset = make_dataset(eval_eps, config)
-    agent = Dreamer(
-        helper_env.observation_space,
-        helper_env.action_space,
-        config,
-        logger,
-        train_dataset,
-    ).to(config.device)
-    agent.requires_grad_(requires_grad=False)
-    if (logdir / "latest_model.pt").exists():
-        agent.load_state_dict(torch.load(logdir / "latest_model.pt"))
-        agent._should_pretrain._once = False
-
-    eval_scheduler = tools.Every(config.eval_every_collection_episodes)
-    collected_episodes = 0
-    eval_tasks = [sample_task() for _ in range(config.eval_episode_num)]
-    training_times = []
-    best_return = -np.inf
-    eval_policy = functools.partial(agent, training=False)
-    while logger.get_agent_frames() < config.steps:
-        logger.write()
-        if eval_scheduler(collected_episodes):
-            dreamer_eval_time = time.time()
-            print(f"Start evaluation (episodes {collected_episodes}).")
-            _, _, eval_return = tools.simulate(
-                eval_policy,
-                eval_envs,
-                eval_tasks,
-                eval_eps,
-                config.evaldir,
+            prefill_tasks = [sample_task() for _ in range(config.prefill)]
+            _, steps_taken, _ = tools.simulate(
+                random_agent,
+                train_envs,
+                prefill_tasks,
+                train_eps,
+                config.traindir,
                 logger,
                 is_eval=True,
+                limit=config.dataset_size,
                 state2image=state2img,
                 num_meta_episodes=config.num_meta_episodes,
             )
-            if eval_return > best_return:
-                best_return = eval_return
-                torch.save(agent.state_dict(), logdir / "best_model.pt")
-                logger.scalar("best_return", best_return)
-            if config.video_pred_log:
-                video_pred = agent._wm.video_pred(next(eval_dataset))
-                logger.video("eval_openl", to_np(video_pred))
-            logger.scalar("dreamer_eval_time", time.time() - dreamer_eval_time)
-            logger.scalar("dreamer_training_time", np.sum(training_times))
-            training_times.clear()
-        dreamer_training_time = time.time()
-        print("Start training.")
-        train_tasks = [sample_task() for _ in range(config.envs)]
-        _, steps_taken, _ = tools.simulate(
-            agent,
-            train_envs,
-            train_tasks,
-            train_eps,
-            config.traindir,
+            logger.step += steps_taken * config.action_repeat
+            print(f"Logger: ({logger.step} steps).")
+
+        print("Simulate agent.")
+        train_dataset = make_dataset(train_eps, config)
+        eval_dataset = make_dataset(eval_eps, config)
+        agent = Dreamer(
+            helper_env.observation_space,
+            helper_env.action_space,
+            config,
             logger,
-            is_eval=False,
-            limit=config.dataset_size,
-            num_meta_episodes=config.num_meta_episodes
+            train_dataset,
+        ).to(config.device)
+        agent.requires_grad_(requires_grad=False)
+        if (logdir / "latest_model.pt").exists():
+            agent.load_state_dict(torch.load(logdir / "latest_model.pt"))
+            agent._should_pretrain._once = False
+
+        eval_scheduler = tools.Every(config.eval_every_collection_episodes)
+        collected_episodes = 0
+        eval_tasks = [sample_task() for _ in range(config.eval_episode_num)]
+        training_times = []
+        best_return = -np.inf
+        eval_policy = functools.partial(agent, training=False)
+        while logger.get_agent_frames() < config.steps:
+            logger.write()
+            if eval_scheduler(collected_episodes):
+                dreamer_eval_time = time.time()
+                print(f"Start evaluation (episodes {collected_episodes}).")
+                _, _, eval_return = tools.simulate(
+                    eval_policy,
+                    eval_envs,
+                    eval_tasks,
+                    eval_eps,
+                    config.evaldir,
+                    logger,
+                    is_eval=True,
+                    state2image=state2img,
+                    num_meta_episodes=config.num_meta_episodes,
+                )
+                if eval_return > best_return:
+                    best_return = eval_return
+                    torch.save(agent.state_dict(), logdir / "best_model.pt")
+                    logger.scalar("best_return", best_return)
+                if config.video_pred_log:
+                    video_pred = agent._wm.video_pred(next(eval_dataset))
+                    logger.video("eval_openl", to_np(video_pred))
+                logger.scalar("dreamer_eval_time", time.time() - dreamer_eval_time)
+                logger.scalar("dreamer_training_time", np.sum(training_times))
+                training_times.clear()
+            dreamer_training_time = time.time()
+            print("Start training.")
+            train_tasks = [sample_task() for _ in range(config.envs)]
+            _, steps_taken, _ = tools.simulate(
+                agent,
+                train_envs,
+                train_tasks,
+                train_eps,
+                config.traindir,
+                logger,
+                is_eval=False,
+                limit=config.dataset_size,
+                num_meta_episodes=config.num_meta_episodes
+            )
+            collected_episodes += config.envs
+            logger.step += steps_taken * config.action_repeat
+            agent.update_models(int(config.train_ratio * steps_taken / config.num_meta_episodes))
+
+            torch.save(agent.state_dict(), logdir / "latest_model.pt")
+            training_times.append(time.time() - dreamer_training_time)
+
+        agent.load_state_dict(torch.load(logdir / "best_model.pt"), strict=False)
+        _, _, test_return = tools.simulate(
+            eval_policy,
+            eval_envs,
+            [sample_task() for _ in range(config.test_episode_num)],
+            eval_eps,
+            config.evaldir,
+            logger,
+            is_eval=True,
+            state2image=state2img,
+            num_meta_episodes=config.num_meta_episodes,
         )
-        collected_episodes += config.envs
-        logger.step += steps_taken * config.action_repeat
-        agent.update_models(int(config.train_ratio * steps_taken / config.num_meta_episodes))
+        logger.scalar("test_return", test_return)
+        print(f"Test return: {test_return:.1f}.")
 
-        torch.save(agent.state_dict(), logdir / "latest_model.pt")
-        training_times.append(time.time() - dreamer_training_time)
+        for env in train_envs + eval_envs:
+            try:
+                env.close()
+            except Exception:
+                pass
+        print("Training finished.")
 
-    agent.load_state_dict(torch.load(logdir / "best_model.pt"), strict=False)
-    _, _, test_return = tools.simulate(
-        eval_policy,
-        eval_envs,
-        [sample_task() for _ in range(config.test_episode_num)],
-        eval_eps,
-        config.evaldir,
-        logger,
-        is_eval=True,
-        state2image=state2img,
-        num_meta_episodes=config.num_meta_episodes,
-    )
-    logger.scalar("test_return", test_return)
-    print(f"Test return: {test_return:.1f}.")
-
-    for env in train_envs + eval_envs:
-        try:
-            env.close()
-        except Exception:
-            pass
-    print("Training finished.")
+    finally:
+        vdisplay.stop()
 
 
 if __name__ == "__main__":
