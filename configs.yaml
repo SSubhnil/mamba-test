@@ -13,7 +13,7 @@ defaults:
   log_every: 1e4
   log_imagined_horizon_effective_length: False
   reset_every: 0
-  device: 'cuda:0'
+  device: 'cuda:2'
   compile: True
   precision: 32
   debug: False
@@ -144,7 +144,7 @@ dmc_vision:
 
 dmc_proprio:
   steps: 1e6
-  reach_wm_horizon_limit: 5e6
+  reach_wm_horizon_limit: 3e5
   train_ratio: 0.03
   max_episode_length: 300
   logdir: ./dmc_proprio

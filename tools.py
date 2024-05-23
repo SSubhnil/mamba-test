@@ -45,7 +45,7 @@ class Logger:
             project="dreamer-v3",
             name=config.exp_label,
             config=config,
-            mode="disabled",  # for debug don't capture wandb
+            mode="offline",  # for debug don't capture wandb
         )
         self._config = config
         self._last_step = None
@@ -950,6 +950,8 @@ def uniform_weight_init(given_scale):
 
 
 def tensorstats(tensor, prefix=None):
+    if isinstance(tensor, np.ndarray):
+        tensor = torch.tensor(tensor)
     metrics = {
         "mean": to_np(torch.mean(tensor)),
         "std": to_np(torch.std(tensor)),
