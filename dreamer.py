@@ -28,7 +28,7 @@ from torch import nn
 from torch import distributions as torchd
 
 to_np = lambda x: x.detach().cpu().numpy()
-
+torch.cuda.empty_cache()
 
 class Dreamer(nn.Module):
     def __init__(self, obs_space, act_space, config, logger, dataset):

@@ -950,6 +950,8 @@ def uniform_weight_init(given_scale):
 
 
 def tensorstats(tensor, prefix=None):
+    if isinstance(tensor, np.ndarray):
+        tensor = torch.tensor(tensor)
     metrics = {
         "mean": to_np(torch.mean(tensor)),
         "std": to_np(torch.std(tensor)),
