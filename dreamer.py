@@ -445,8 +445,18 @@ def main(config):
         train_dataset,
     ).to(config.device)
     agent.requires_grad_(requires_grad=False)
-    if (logdir / "latest_model.pt").exists():
-        agent.load_state_dict(torch.load(logdir / "latest_model.pt"))
+
+
+    ########################################################################################
+    # if (logdir / "latest_model.pt").exists():
+    #     agent.load_state_dict(torch.load(logdir / "latest_model.pt"))
+    #     agent._should_pretrain._once = False
+    ######################################################
+    if (logdir / "latest_model.pt").exists() or config.pretrained_path:
+        model_path = logdir / "latest_model.pt"
+        if config.pretrained_path:
+            model_path = pathlib.Path(config.pretrained_path)
+        agent.load_state_dict(torch.load(model_path))
         agent._should_pretrain._once = False
 
     eval_scheduler = tools.Every(config.eval_every_collection_episodes)

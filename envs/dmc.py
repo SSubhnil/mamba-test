@@ -27,6 +27,35 @@ class DeepMindControl:
         self.reward_range = [-np.inf, np.inf]
         self._state_keys_to_ignore = ["force_torque"] if small_state_space else []
 
+        default_params = {
+            'force_type': 'step',
+            'timing': 'random',
+            'body_part': 'torso',
+            'force_magnitude': 150,  # redundant for now
+            'interval': 90,  # redundant for now
+            'random_chance': 0.8,  # Chance to apply random force
+            'force_range': (90, 170),
+            'interval_mean': 90,  # Mean for sampling interval 90, 180
+            'interval_std': 10,  # Standard deviation for sampling interval
+            'duration_min': 5,  # Minimum duration for swelling force
+            'duration_max': 20  # Maximum duration for the swelling force
+        }
+        self.confounder_params = default_params
+
+        # Initialize attributes based on confounder_params
+        self.force_type = self.confounder_params['force_type']
+        self.timing = self.confounder_params['timing']
+        self.body_part = self.confounder_params['body_part']
+        self.force_magnitude = self.confounder_params['force_magnitude']
+        self.interval = self.confounder_params['interval']
+        self.random_chance = self.confounder_params['random_chance']
+        self.force_range = self.confounder_params['force_range']
+        self.interval_mean = self.confounder_params['interval_mean']
+        self.interval_std = self.confounder_params['interval_std']
+        self.duration_min = self.confounder_params['duration_min']
+        self.duration_max = self.confounder_params['duration_max']
+        self.time_since_last_force = 0
+#Logger
     @property
     def observation_space(self):
         spaces = {}
@@ -50,7 +79,7 @@ class DeepMindControl:
     def step(self, action):
         assert np.isfinite(action).all(), action
         reward = 0
-
+        self.apply_force()
         for _ in range(self._action_repeat):
             time_step = self._env.step(action)
             reward += time_step.reward or 0
@@ -97,3 +126,47 @@ class DeepMindControl:
             return super().__getattribute__(item)
         except AttributeError:
             return getattr(self._env, item)
+
+    def apply_force(self):
+        if self.timing == 'random':
+            self.interval = max(30, int(np.random.normal(self.interval_mean,
+                                                         self.interval_std)))
+            if np.random.uniform() > self.random_chance:
+                return
+
+        # Update the timing
+        self.time_since_last_force += 1
+        if self.time_since_last_force < self.interval:
+            return
+
+        # Reset timing for next force application
+        self.time_since_last_force = 0
+
+        # Sample the force magnitude fom a normal distribution within the range
+        force_magnitude = np.clip(np.random.normal((self.force_range[0] + self.force_range[1]) / 2,
+                                                   (self.force_range[1] - self.force_range[0]) / 6),
+                                  self.force_range[0], self.force_range[1])
+
+        # Calculate the duration for the force application if 'swelling'
+        duration = np.random.randint(self.duration_min, self.duration_max + 1)
+
+        # FLipping the direction for additional challenge
+        direction = np.random.choice([-1, 1])
+
+        # Apply swelling or other dynamics based on force type
+        # Construct the force vector
+        if self.force_type == 'step':
+            force = np.array([direction * force_magnitude, 0, 0, 0, 0, 0])
+        elif self.force_type == 'swelling':
+            # Calculate the time step where the force magnitude is at its peak
+            peak_time = duration / 2
+            # Calculate the standard deviation to control thh width of the bell curve
+            sigma = duration / 6  # Adjust as needed for the desired width
+            # Calculate the force magnitude at the current time step using a Gaussian function
+            time_step_normalized = (self.time_since_last_force - peak_time) / sigma
+            magnitude = force_magnitude * np.exp(-0.5 * (time_step_normalized ** 2))
+            force = np.array([direction * magnitude, 0, 0, 0, 0, 0])
+
+        body_id = self._env.physics.model.name2id(self.body_part, 'body')
+        # Apply the force
+        self._env.physics.data.xfrc_applied[body_id] = force

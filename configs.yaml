@@ -3,6 +3,7 @@ defaults:
   logdir: null
   traindir: null
   evaldir: null
+  pretrained_path: null
   offline_traindir: ''
   offline_evaldir: ''
   seed: 0
